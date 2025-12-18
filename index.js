@@ -5,60 +5,89 @@ const path = require('path');
 
 const bot = new TelegramBot(process.env.BOT_TOKEN, { polling: true });
 
+// /start command
 bot.onText(/\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, `👋 Welcome to Downloader Bot!
-Send any YouTube or TikTok link.
-Commands:
-/mp3 <YouTube link> - Download audio
-`);
+  bot.sendMessage(
+    msg.chat.id,
+    `👋 Welcome to Sachiya Downloader Bot
+
+📥 Send a YouTube or TikTok link
+👇 Choose format using buttons`,
+  );
 });
 
-// MP3 Download
-bot.onText(/\/mp3 (.+)/, (msg, match) => {
+// Store user links
+const userLinks = {};
+
+// When user sends a link
+bot.on('message', (msg) => {
+  if (!msg.text) return;
+  if (!msg.text.startsWith('http')) return;
+
   const chatId = msg.chat.id;
-  const url = match[1];
+  userLinks[chatId] = msg.text;
 
-  bot.sendMessage(chatId, '🎵 Downloading MP3...');
-
-  exec(`yt-dlp -x --audio-format mp3 -o "%(title)s.%(ext)s" ${url}`, (err) => {
-    if (err) {
-      bot.sendMessage(chatId, '❌ Error downloading audio.');
-      return;
-    }
-
-    // Find downloaded file
-    const files = fs.readdirSync('./').filter(f => f.endsWith('.mp3'));
-    if (files.length > 0) {
-      const filePath = path.join('./', files[0]);
-      bot.sendAudio(chatId, filePath).then(() => {
-        fs.unlinkSync(filePath);
-      });
+  bot.sendMessage(chatId, '👇 Select download type:', {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: '🎥 Video', callback_data: 'video' },
+          { text: '🎵 MP3', callback_data: 'mp3' }
+        ],
+        [
+          { text: '❌ Cancel', callback_data: 'cancel' }
+        ]
+      ]
     }
   });
 });
 
-// Video Download (MP4)
-bot.on('message', (msg) => {
-  if (!msg.text) return;
-  if (msg.text.startsWith('http')) {
-    const chatId = msg.chat.id;
-    const url = msg.text;
+// Handle button clicks
+bot.on('callback_query', (query) => {
+  const chatId = query.message.chat.id;
+  const action = query.data;
+  const url = userLinks[chatId];
 
+  if (action === 'cancel') {
+    bot.sendMessage(chatId, '❌ Cancelled');
+    return;
+  }
+
+  if (!url) {
+    bot.sendMessage(chatId, '⚠️ Please send a link first');
+    return;
+  }
+
+  // VIDEO
+  if (action === 'video') {
     bot.sendMessage(chatId, '📥 Downloading video...');
 
     exec(`yt-dlp -f mp4 -o "%(title)s.%(ext)s" ${url}`, (err) => {
       if (err) {
-        bot.sendMessage(chatId, '❌ Download failed.');
+        bot.sendMessage(chatId, '❌ Video download failed');
         return;
       }
 
-      // Find downloaded file
-      const files = fs.readdirSync('./').filter(f => f.endsWith('.mp4'));
-      if (files.length > 0) {
-        const filePath = path.join('./', files[0]);
-        bot.sendVideo(chatId, filePath).then(() => {
-          fs.unlinkSync(filePath);
-        });
+      const file = fs.readdirSync('./').find(f => f.endsWith('.mp4'));
+      if (file) {
+        bot.sendVideo(chatId, file).then(() => fs.unlinkSync(file));
+      }
+    });
+  }
+
+  // MP3
+  if (action === 'mp3') {
+    bot.sendMessage(chatId, '🎵 Downloading MP3...');
+
+    exec(`yt-dlp -x --audio-format mp3 -o "%(title)s.%(ext)s" ${url}`, (err) => {
+      if (err) {
+        bot.sendMessage(chatId, '❌ MP3 download failed');
+        return;
+      }
+
+      const file = fs.readdirSync('./').find(f => f.endsWith('.mp3'));
+      if (file) {
+        bot.sendAudio(chatId, file).then(() => fs.unlinkSync(file));
       }
     });
   }
